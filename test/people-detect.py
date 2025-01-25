@@ -11,9 +11,6 @@ print(f"Using device: {device}")
 yolo_detection = YOLO("../models/yolov8n.pt").to(device)  # Detection model
 yolo_segmentation = YOLO("../models/yolov8n-seg.pt").to(device)  # Segmentation model
 
-# Store previous positions for tracking
-person_trails = {}
-
 # IOU calculation function
 def compute_iou(box1, box2):
     x1 = max(box1[0], box2[0])
@@ -29,7 +26,7 @@ def compute_iou(box1, box2):
     return intersection / union if union > 0 else 0
 
 # Load video file
-video_path = r"E:\RoboCam\RoboCam\assets\dataset\Anomaly-Videos-Part-1\Assault\Assault001_x264.mp4"
+video_path = r"E:\RoboCam\RoboCam\assets\dataset\Anomaly-Videos-Part-1\Assault\Assault001_x264.mp4"  # Replace with your video file path
 cap = cv2.VideoCapture(video_path)
 
 while True:
@@ -47,16 +44,10 @@ while True:
     seg_boxes = results_seg[0].boxes.xyxy.cpu().numpy()  # Bounding boxes
     seg_classes = results_seg[0].boxes.cls.cpu().numpy()  # Class IDs
 
-    # Store current person positions
-    current_positions = []
-
-    # Draw detection boxes (green) & store center positions
+    # Draw detection boxes (green)
     for box, cls in zip(detections, det_classes):
         if int(cls) == 0:  # Class 0 is 'person' in COCO
             x1, y1, x2, y2 = map(int, box)
-            center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2  # Center of bounding box
-            current_positions.append((center_x, center_y))
-
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
     # Draw segmentation boxes (blue)
@@ -73,19 +64,8 @@ while True:
                 x1, y1, x2, y2 = map(int, det_box)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
-    # Update person trails
-    for center in current_positions:
-        person_trails.setdefault(center, []).append(center)
-        if len(person_trails[center]) > 30:  # Limit trail length
-            person_trails[center].pop(0)
-
-    # Draw movement trails (red)
-    for trail in person_trails.values():
-        for i in range(1, len(trail)):
-            cv2.line(frame, trail[i - 1], trail[i], (0, 0, 255), 2)
-
     # Display the frame
-    cv2.imshow("YOLOv8 Detection & Movement Tracking", frame)
+    cv2.imshow("YOLOv8 Detection & Segmentation (GPU)", frame)
 
     # Break on 'q' key press
     if cv2.waitKey(1) & 0xFF == ord('q'):
