@@ -11,8 +11,6 @@ print(f"Using device: {device}")
 yolo_detection = YOLO("../models/yolov8n.pt").to(device)  # Detection model
 yolo_segmentation = YOLO("../models/yolov8n-seg.pt").to(device)  # Segmentation model
 
-# Store previous positions for tracking
-person_trails = {}
 
 # IOU calculation function
 def compute_iou(box1, box2):
@@ -28,8 +26,9 @@ def compute_iou(box1, box2):
 
     return intersection / union if union > 0 else 0
 
+
 # Load video file
-video_path = r"E:\RoboCam\RoboCam\assets\dataset\Anomaly-Videos-Part-1\Assault\Assault001_x264.mp4"
+video_path = r"E:\RoboCam\RoboCam\assets\dataset\Anomaly-Videos-Part-1\Assault\Assault001_x264.mp4"  # Replace with your video file path
 cap = cv2.VideoCapture(video_path)
 
 while True:
@@ -41,51 +40,49 @@ while True:
     results_det = yolo_detection(frame, device=device)
     detections = results_det[0].boxes.xyxy.cpu().numpy()  # Bounding boxes
     det_classes = results_det[0].boxes.cls.cpu().numpy()  # Class IDs
+    det_scores = results_det[0].boxes.conf.cpu().numpy()  # Confidence scores
 
     # YOLOv8-Segmentation on GPU
     results_seg = yolo_segmentation(frame, device=device)
     seg_boxes = results_seg[0].boxes.xyxy.cpu().numpy()  # Bounding boxes
     seg_classes = results_seg[0].boxes.cls.cpu().numpy()  # Class IDs
+    seg_scores = results_seg[0].boxes.conf.cpu().numpy()  # Confidence scores
 
-    # Store current person positions
-    current_positions = []
+    # Combine the detection and segmentation results
+    combined_boxes = []
+    combined_scores = []
+    combined_classes = []
 
-    # Draw detection boxes (green) & store center positions
-    for box, cls in zip(detections, det_classes):
+    # Combine boxes from both models and keep track of confidence
+    for box, cls, score in zip(detections, det_classes, det_scores):
         if int(cls) == 0:  # Class 0 is 'person' in COCO
-            x1, y1, x2, y2 = map(int, box)
-            center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2  # Center of bounding box
-            current_positions.append((center_x, center_y))
+            combined_boxes.append(box)
+            combined_scores.append(score)
+            combined_classes.append(cls)
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-    # Draw segmentation boxes (blue)
-    for box, cls in zip(seg_boxes, seg_classes):
+    for box, cls, score in zip(seg_boxes, seg_classes, seg_scores):
         if int(cls) == 0:  # Class 0 is 'person' in COCO
-            x1, y1, x2, y2 = map(int, box)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            # Check if the same person is detected by both models, combine them
+            overlap_found = False
+            for i, combined_box in enumerate(combined_boxes):
+                iou = compute_iou(box, combined_box)
+                if iou > 0.5:  # IOU threshold
+                    combined_scores[i] = max(combined_scores[i], score)  # Take the highest confidence
+                    overlap_found = True
+                    break
+            if not overlap_found:
+                combined_boxes.append(box)
+                combined_scores.append(score)
+                combined_classes.append(cls)
 
-    # Highlight overlapping boxes (yellow)
-    for det_box in detections:
-        for seg_box in seg_boxes:
-            iou = compute_iou(det_box, seg_box)
-            if iou > 0.5:  # IOU threshold
-                x1, y1, x2, y2 = map(int, det_box)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-
-    # Update person trails
-    for center in current_positions:
-        person_trails.setdefault(center, []).append(center)
-        if len(person_trails[center]) > 30:  # Limit trail length
-            person_trails[center].pop(0)
-
-    # Draw movement trails (red)
-    for trail in person_trails.values():
-        for i in range(1, len(trail)):
-            cv2.line(frame, trail[i - 1], trail[i], (0, 0, 255), 2)
+    # Draw the combined boxes (yellow) based on highest confidence
+    for box, score in zip(combined_boxes, combined_scores):
+        x1, y1, x2, y2 = map(int, box)
+        color = (0, 255, 255)  # Yellow for combined detection
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
     # Display the frame
-    cv2.imshow("YOLOv8 Detection & Movement Tracking", frame)
+    cv2.imshow("Combined YOLO Detection & Segmentation (GPU)", frame)
 
     # Break on 'q' key press
     if cv2.waitKey(1) & 0xFF == ord('q'):
