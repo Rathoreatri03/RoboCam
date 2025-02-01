@@ -1,3 +1,5 @@
 assets/dataset/
 *.pt
 assets/github_repos
+*.onnx
+*.engine
